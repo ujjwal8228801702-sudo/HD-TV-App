@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HD TV</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+  body { background: #070a12; color: #fff; display: flex; height: 100vh; overflow: hidden; }
+  
+  /* Sidebar */
+  .sidebar { width: 280px; background: #0d1322; border-right: 1px solid #1e293b; display: flex; flex-direction: column; padding: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #00e5ff; margin-bottom: 14px; letter-spacing: 1px; }
+  .brand span { background: #e50914; color: #fff; padding: 2px 8px; border-radius: 6px; font-size: 14px; }
+  
+  /* Categories */
+  .cats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .cat-btn { background: #162038; border: 1px solid #263554; color: #cbd5e1; padding: 6px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .cat-btn.active, .cat-btn:focus { background: #e50914; color: #fff; border-color: #ff4d5a; outline: 2px solid #00e5ff; }
+  
+  /* Channel List */
+  .channels { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+  .ch-card { display: flex; align-items: center; justify-content: space-between; background: #11192c; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; transition: 0.2s; }
+  .ch-card:hover, .ch-card:focus, .ch-card.playing { background: #1a2744; border-color: #00e5ff; outline: none; transform: scale(1.02); }
+  .ch-info { display: flex; align-items: center; gap: 10px; }
+  .ch-num { background: #1e293b; color: #00e5ff; font-weight: 700; font-size: 12px; padding: 4px 7px; border-radius: 6px; }
+  .ch-name { font-size: 14px; font-weight: 600; }
+  .hd-badge { background: linear-gradient(45deg, #e50914, #ff512f); font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; }
+
+  /* Add Playlist Button */
+  .add-btn { margin-top: 10px; background: #00e5ff; color: #070a12; border: none; padding: 10px; border-radius: 8px; font-weight: 800; cursor: pointer; }
+  .add-btn:focus { outline: 3px solid #fff; }
+
+  /* Player Area */
+  .player-wrap { flex: 1; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
+  video { width: 100%; height: 100%; object-fit: contain; }
+  .osd { position: absolute; top: 20px; left: 20px; background: rgba(13, 19, 34, 0.85); backdrop-filter: blur(8px); padding: 10px 18px; border-radius: 12px; border-left: 4px solid #e50914; pointer-events: none; transition: opacity 0.4s; }
+  .osd h2 { font-size: 18px; color: #fff; }
+  .osd p { font-size: 12px; color: #00e5ff; }
+
+  /* Modal for M3U / Stream Link */
+  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; z-index: 99; }
+  .modal-box { background: #0d1322; padding: 20px; border-radius: 14px; width: 90%; max-width: 420px; border: 1px solid #00e5ff; }
+  .modal-box h3 { margin-bottom: 12px; color: #00e5ff; }
+  .modal-box input { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #334155; background: #162038; color: #fff; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .btn { padding: 8px 14px; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+  <div class="brand">HD TV <span>LIVE</span></div>
+  <div class="cats">
+    <button class="cat-btn active" tabindex="0" onclick="filterCat('ALL', this)">All</button>
+    <button class="cat-btn" tabindex="0" onclick="filterCat('ZEE', this)">Zee Network</button>
+    <button class="cat-btn" tabindex="0" onclick="filterCat('STAR', this)">Star Sports</button>
+    <button class="cat-btn" tabindex="0" onclick="filterCat('SONY', this)">Sony Network</button>
+  </div>
+  <div class="channels" id="channelList"></div>
+  <button class="add-btn" tabindex="0" onclick="openModal()">+ Add M3U / Channel URL</button>
+</div>
+
+<div class="player-wrap" onclick="toggleSidebar()">
+  <video id="video" autoplay playsinline></video>
+  <div class="osd" id="osd">
+    <h2 id="osdTitle">HD TV Ready</h2>
+    <p id="osdCat">Select a channel or add M3U playlist</p>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <h3>Add Channel or M3U Playlist</h3>
+    <input type="text" id="chNameInput" placeholder="Channel Name (e.g. Zee Cinema HD)">
+    <input type="text" id="chCatInput" placeholder="Category (ZEE / STAR / SONY)">
+    <input type="text" id="chUrlInput" placeholder="Stream URL (.m3u8) OR .m3u Playlist URL">
+    <div class="modal-actions">
+      <button class="btn" style="background:#334155;color:#fff;" onclick="closeModal()">Cancel</button>
+      <button class="btn" style="background:#00e5ff;color:#000;" onclick="saveChannel()">Save & Load</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const defaultChannels = [
+  { num: 101, name: "Zee Cinema HD", cat: "ZEE", url: "" },
+  { num: 102, name: "Zee TV HD", cat: "ZEE", url: "" },
+  { num: 103, name: "&pictures HD", cat: "ZEE", url: "" },
+  { num: 104, name: "Zee News HD", cat: "ZEE", url: "" },
+  { num: 201, name: "Star Sports 1 HD", cat: "STAR", url: "" },
+  { num: 202, name: "Star Sports 1 Hindi HD", cat: "STAR", url: "" },
+  { num: 203, name: "Star Sports 2 HD", cat: "STAR", url: "" },
+  { num: 204, name: "Star Sports Select 1 HD", cat: "STAR", url: "" },
+  { num: 301, name: "Sony SET HD", cat: "SONY", url: "" },
+  { num: 302, name: "Sony SAB HD", cat: "SONY", url: "" },
+  { num: 303, name: "Sony MAX HD", cat: "SONY", url: "" },
+  { num: 304, name: "Sony Sports Ten 1 HD", cat: "SONY", url: "" },
+  { num: 305, name: "Sony Sports Ten 5 HD", cat: "SONY", url: "" }
+];
+
+let channels = JSON.parse(localStorage.getItem('hdtv_channels')) || defaultChannels;
+let currentCat = 'ALL';
+let hls = null;
+const video = document.getElementById('video');
+
+function renderChannels() {
+  const list = document.getElementById('channelList');
+  list.innerHTML = '';
+  const filtered = currentCat === 'ALL' ? channels : channels.filter(c => c.cat.toUpperCase().includes(currentCat));
+  
+  filtered.forEach((ch, idx) => {
+    const div = document.createElement('div');
+    div.className = 'ch-card';
+    div.tabIndex = 0;
+    div.innerHTML = `
+      <div class="ch-info">
+        <span class="ch-num">${ch.num}</span>
+        <span class="ch-name">${ch.name}</span>
+      </div>
+      <span class="hd-badge">HD</span>
+    `;
+    div.onclick = () => playChannel(ch, div);
+    div.onkeydown = (e) => { if(e.key === 'Enter') playChannel(ch, div); };
+    list.appendChild(div);
+  });
+}
+
+function filterCat(cat, btn) {
+  currentCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChannels();
+}
+
+function playChannel(ch, el) {
+  document.querySelectorAll('.ch-card').forEach(c => c.classList.remove('playing'));
+  if(el) el.classList.add('playing');
+  
+  showOSD(ch.name, ch.url ? `Playing ${ch.cat} • 1080p HD` : "Stream URL empty — Click '+ Add M3U / Channel URL'");
+  
+  if (!ch.url) return;
+  if (hls) { hls.destroy(); }
+  if (Hls.isSupported() && ch.url.includes('.m3u8')) {
+    hls = new Hls();
+    hls.loadSource(ch.url);
+    hls.attachMedia(video);
+  } else {
+    video.src = ch.url;
+  }
+}
+
+function showOSD(title, sub) {
+  const osd = document.getElementById('osd');
+  document.getElementById('osdTitle').innerText = title;
+  document.getElementById('osdCat').innerText = sub;
+  osd.style.opacity = '1';
+  clearTimeout(window.osdTimer);
+  window.osdTimer = setTimeout(() => { osd.style.opacity = '0.2'; }, 4000);
+}
+
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.style.display = sb.style.display === 'none' ? 'flex' : 'none';
+}
+
+function handleBack() {
+  const modal = document.getElementById('modal');
+  if (modal.style.display === 'flex') { closeModal(); return; }
+  toggleSidebar();
+}
+
+function openModal() { document.getElementById('modal').style.display = 'flex'; }
+function closeModal() { document.getElementById('modal').style.display = 'none'; }
+
+async function saveChannel() {
+  const name = document.getElementById('chNameInput').value.trim();
+  const cat = (document.getElementById('chCatInput').value.trim() || 'ALL').toUpperCase();
+  const url = document.getElementById('chUrlInput').value.trim();
+
+  if (!url) return;
+
+  // M3U Playlist Parser
+  if (url.endsWith('.m3u') || url.includes('m3u')) {
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      const lines = text.split('\n');
+      let tempName = '';
+      lines.forEach(line => {
+        if (line.startsWith('#EXTINF')) {
+          tempName = line.split(',')[1] || 'HD Channel';
+        } else if (line.startsWith('http')) {
+          let detectedCat = 'ALL';
+          const up = tempName.toUpperCase();
+          if (up.includes('ZEE') || up.includes('&TV') || up.includes('&PICTURES')) detectedCat = 'ZEE';
+          else if (up.includes('STAR')) detectedCat = 'STAR';
+          else if (up.includes('SONY') || up.includes('SAB')) detectedCat = 'SONY';
+          channels.push({ num: channels.length + 101, name: tempName.trim(), cat: detectedCat, url: line.trim() });
+        }
+      });
+    } catch (e) {
+      alert("M3U load nahi ho paya, direct .m3u8 link try karein.");
+    }
+  } else {
+    channels.unshift({ num: 100, name: name || 'Custom HD Channel', cat: cat, url: url });
+  }
+
+  localStorage.setItem('hdtv_channels', JSON.stringify(channels));
+  renderChannels();
+  closeModal();
+}
+
+// Remote Number Keys (0-9) Support
+let numBuffer = '';
+document.addEventListener('keydown', (e) => {
+  if (e.key >= '0' && e.key <= '9') {
+    numBuffer += e.key;
+    showOSD(`Channel #${numBuffer}`, 'Switching...');
+    clearTimeout(window.numTimer);
+    window.numTimer = setTimeout(() => {
+      const found = channels.find(c => String(c.num) === numBuffer);
+      if (found) playChannel(found);
+      numBuffer = '';
+    }, 1000);
+  }
+});
+
+renderChannels();
+</script>
+</body>
+</html>
